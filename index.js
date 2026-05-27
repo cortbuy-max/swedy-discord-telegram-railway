@@ -18,7 +18,6 @@ const EMOJI_HELP = "\u{2753}";
 const EMOJI_CHEERS = "\u{1F942}";
 
 const WANTED_AGENTS = [
-  "Doppel.fit",
   "Litbuy",
   "Hipobuy",
   "OopBuy",
@@ -42,6 +41,7 @@ app.get("/health", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
   console.log(`Web server running on port ${PORT}`);
 });
@@ -87,7 +87,10 @@ function normalizeImageKey(url) {
   } catch {}
 
   value = value
-    .replace(/^https?:\/\/images-ext-\d+\.discordapp\.net\/external\/[^/]+\//, "")
+    .replace(
+      /^https?:\/\/images-ext-\d+\.discordapp\.net\/external\/[^/]+\//,
+      ""
+    )
     .replace(/^https?:\/\/media\.discordapp\.net\//, "")
     .replace(/^https?:\/\/cdn\.discordapp\.com\//, "")
     .replace(/^https?:\/\/cdn\.doppel\.fit\//, "")
@@ -131,7 +134,6 @@ function normalizeAgentName(label) {
     .replace(/\./g, "");
 
   const aliases = {
-    doppelfit: "Doppel.fit",
     litbuy: "Litbuy",
     hipobuy: "Hipobuy",
     oopbuy: "OopBuy",
@@ -339,6 +341,23 @@ function buildCaption({ productName, price, agentLines }) {
   return lines.join("\n").trim();
 }
 
+function buildShortCaptionFromFullCaption(caption) {
+  const lines = String(caption || "").split("\n");
+  const shortLines = [];
+
+  for (const line of lines) {
+    if (line.includes("<b>")) {
+      shortLines.push(line);
+    }
+
+    if (line.includes("Price:")) {
+      shortLines.push(line);
+    }
+  }
+
+  return shortLines.join("\n").trim() || "Product";
+}
+
 function splitTelegramText(text, maxLength = 4096) {
   const chunks = [];
   let rest = text;
@@ -400,10 +419,13 @@ async function sendText(text) {
 }
 
 async function sendProduct({ imageUrls, caption }) {
-  if (imageUrls.length > 1) {
-    const mediaCaption =
-      caption.length <= 1024 ? caption : caption.slice(0, 950) + "\n\n...";
+  const captionIsTooLong = caption.length > 1024;
 
+  const safeCaption = captionIsTooLong
+    ? buildShortCaptionFromFullCaption(caption)
+    : caption;
+
+  if (imageUrls.length > 1) {
     const media = imageUrls.map((url, index) => {
       const item = {
         type: "photo",
@@ -411,7 +433,7 @@ async function sendProduct({ imageUrls, caption }) {
       };
 
       if (index === 0) {
-        item.caption = mediaCaption;
+        item.caption = safeCaption;
         item.parse_mode = "HTML";
       }
 
@@ -428,7 +450,8 @@ async function sendProduct({ imageUrls, caption }) {
 
       console.log("Sent MediaGroup with caption");
 
-      if (caption.length > 1024) {
+      if (captionIsTooLong) {
+        console.log("Caption was too long, sending full caption as text");
         await sleep(1000);
         await sendText(caption);
       }
@@ -441,19 +464,17 @@ async function sendProduct({ imageUrls, caption }) {
   }
 
   if (imageUrls.length >= 1) {
-    const photoCaption =
-      caption.length <= 1024 ? caption : caption.slice(0, 950) + "\n\n...";
-
     await telegramPost("sendPhoto", {
       chat_id: TELEGRAM_CHAT_ID,
       photo: imageUrls[0],
-      caption: photoCaption,
+      caption: safeCaption,
       parse_mode: "HTML",
     });
 
     console.log("Sent one photo with caption");
 
-    if (caption.length > 1024) {
+    if (captionIsTooLong) {
+      console.log("Caption was too long, sending full caption as text");
       await sleep(1000);
       await sendText(caption);
     }
