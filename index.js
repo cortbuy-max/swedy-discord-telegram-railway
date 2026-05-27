@@ -87,10 +87,7 @@ function normalizeImageKey(url) {
   } catch {}
 
   value = value
-    .replace(
-      /^https?:\/\/images-ext-\d+\.discordapp\.net\/external\/[^/]+\//,
-      ""
-    )
+    .replace(/^https?:\/\/images-ext-\d+\.discordapp\.net\/external\/[^/]+\//, "")
     .replace(/^https?:\/\/media\.discordapp\.net\//, "")
     .replace(/^https?:\/\/cdn\.discordapp\.com\//, "")
     .replace(/^https?:\/\/cdn\.doppel\.fit\//, "")
@@ -101,7 +98,9 @@ function normalizeImageKey(url) {
     .replace(/\/format\/webp/gi, "")
     .replace(/\/width\/\d+/gi, "")
     .replace(/\/height\/\d+/gi, "")
-    .replace(/format=webp/gi, "");
+    .replace(/format=webp/gi, "")
+    .replace(/width=\d+/gi, "")
+    .replace(/height=\d+/gi, "");
 
   return value;
 }
@@ -318,7 +317,12 @@ function buildAgentLines(buttonLinks) {
 function buildCaption({ productName, price, agentLines }) {
   const lines = [];
 
-  lines.push(`${EMOJI_DNA} <b>${escapeHtml(productName)}</b> ${EMOJI_DNA}`);
+  let safeProductName = String(productName || "Product");
+  if (safeProductName.length > 90) {
+    safeProductName = safeProductName.slice(0, 87) + "...";
+  }
+
+  lines.push(`${EMOJI_DNA} <b>${escapeHtml(safeProductName)}</b> ${EMOJI_DNA}`);
 
   if (price) {
     lines.push(`${EMOJI_MONEY} Price: ${escapeHtml(price)}`);
@@ -341,39 +345,25 @@ function buildCaption({ productName, price, agentLines }) {
   return lines.join("\n").trim();
 }
 
-function buildShortCaptionFromFullCaption(caption) {
+function makeSafeCaption(caption) {
+  if (caption.length <= 1024) return caption;
+
+  console.log("Caption too long, making shorter caption only. No separate link message.");
+
   const lines = String(caption || "").split("\n");
-  const shortLines = [];
+  const safeLines = [];
 
   for (const line of lines) {
-    if (line.includes("<b>")) {
-      shortLines.push(line);
-    }
-
-    if (line.includes("Price:")) {
-      shortLines.push(line);
+    if (line.includes("<b>") || line.includes("Price:")) {
+      safeLines.push(line);
     }
   }
 
-  return shortLines.join("\n").trim() || "Product";
-}
+  safeLines.push("");
+  safeLines.push(`<a href="${HELP_LINK}">${EMOJI_HELP} ASK HERE FOR HELP &amp; FINDS</a>`);
+  safeLines.push(`<a href="${SPREADSHEET_LINK}">${EMOJI_CHEERS} SWEDY SPREADSHEET ${EMOJI_CHEERS}</a>`);
 
-function splitTelegramText(text, maxLength = 4096) {
-  const chunks = [];
-  let rest = text;
-
-  while (rest.length > maxLength) {
-    let cut = rest.lastIndexOf("\n", maxLength);
-
-    if (cut < 1000) cut = maxLength;
-
-    chunks.push(rest.slice(0, cut));
-    rest = rest.slice(cut).trimStart();
-  }
-
-  if (rest) chunks.push(rest);
-
-  return chunks;
+  return safeLines.join("\n").trim();
 }
 
 const telegram = axios.create({
@@ -403,27 +393,18 @@ async function telegramPost(method, payload) {
 }
 
 async function sendText(text) {
-  const chunks = splitTelegramText(text);
+  await telegramPost("sendMessage", {
+    chat_id: TELEGRAM_CHAT_ID,
+    text,
+    parse_mode: "HTML",
+    disable_web_page_preview: false,
+  });
 
-  for (const chunk of chunks) {
-    await telegramPost("sendMessage", {
-      chat_id: TELEGRAM_CHAT_ID,
-      text: chunk,
-      parse_mode: "HTML",
-      disable_web_page_preview: false,
-    });
-
-    console.log("Sent Telegram text");
-    await sleep(1000);
-  }
+  console.log("Sent Telegram text");
 }
 
 async function sendProduct({ imageUrls, caption }) {
-  const captionIsTooLong = caption.length > 1024;
-
-  const safeCaption = captionIsTooLong
-    ? buildShortCaptionFromFullCaption(caption)
-    : caption;
+  const safeCaption = makeSafeCaption(caption);
 
   if (imageUrls.length > 1) {
     const media = imageUrls.map((url, index) => {
@@ -449,13 +430,6 @@ async function sendProduct({ imageUrls, caption }) {
       });
 
       console.log("Sent MediaGroup with caption");
-
-      if (captionIsTooLong) {
-        console.log("Caption was too long, sending full caption as text");
-        await sleep(1000);
-        await sendText(caption);
-      }
-
       return;
     } catch (error) {
       console.error("MediaGroup failed. Falling back to first image.");
@@ -472,17 +446,10 @@ async function sendProduct({ imageUrls, caption }) {
     });
 
     console.log("Sent one photo with caption");
-
-    if (captionIsTooLong) {
-      console.log("Caption was too long, sending full caption as text");
-      await sleep(1000);
-      await sendText(caption);
-    }
-
     return;
   }
 
-  await sendText(caption);
+  await sendText(safeCaption);
 }
 
 const queue = [];
