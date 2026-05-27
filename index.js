@@ -68,6 +68,48 @@ function isImageUrl(url) {
   );
 }
 
+// Added only for duplicate-image prevention.
+// Everything else stays like the old working code.
+function normalizeImageKey(url) {
+  let value = String(url || "");
+
+  try {
+    value = decodeURIComponent(value);
+  } catch {}
+
+  return value
+    .replace(
+      /^https?:\/\/images-ext-\d+\.discordapp\.net\/external\/[^/]+\//,
+      ""
+    )
+    .replace(/^https?:\/\/media\.discordapp\.net\//, "")
+    .replace(/^https?:\/\/cdn\.discordapp\.com\//, "")
+    .replace(/^https?:\/\/cdn\.doppel\.fit\//, "")
+    .split("?")[0]
+    .split("#")[0];
+}
+
+function dedupeImageUrls(urls) {
+  const seen = new Set();
+  const result = [];
+
+  for (const url of urls) {
+    if (!url) continue;
+
+    const key = normalizeImageKey(url);
+
+    if (seen.has(key)) {
+      console.log("Removed duplicate image:", url);
+      continue;
+    }
+
+    seen.add(key);
+    result.push(url);
+  }
+
+  return result;
+}
+
 function normalizeAgentName(label) {
   const lower = String(label || "").toLowerCase();
 
@@ -161,9 +203,15 @@ function collectFromMessage(message) {
     }
   });
 
+  const uniqueImages = dedupeImageUrls(imageUrls);
+
+  console.log(
+    `Found ${imageUrls.length} raw image URLs, ${uniqueImages.length} unique image URLs`
+  );
+
   return {
     text: [...new Set(textParts.filter(Boolean))].join("\n"),
-    imageUrls: [...new Set(imageUrls.filter(Boolean))].slice(0, 10),
+    imageUrls: uniqueImages.slice(0, 10),
     buttonLinks,
   };
 }
