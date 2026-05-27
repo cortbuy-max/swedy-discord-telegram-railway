@@ -18,12 +18,17 @@ const EMOJI_HELP = "\u{2753}";
 const EMOJI_CHEERS = "\u{1F942}";
 
 const WANTED_AGENTS = [
+  "Doppel.fit",
   "Litbuy",
   "Hipobuy",
+  "OopBuy",
   "KakoBuy",
   "Lovegobuy",
+  "ACBuy",
   "CSSBuy",
   "MuleBuy",
+  "Superbuy",
+  "CNFans",
 ];
 
 const app = express();
@@ -37,6 +42,7 @@ app.get("/health", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
   console.log(`Web server running on port ${PORT}`);
 });
@@ -54,25 +60,91 @@ function escapeHtml(value) {
 
 function safeUrl(url) {
   const value = String(url || "").trim();
-  if (!value.startsWith("http://") && !value.startsWith("https://")) return "";
+
+  if (!value.startsWith("http://") && !value.startsWith("https://")) {
+    return "";
+  }
+
   return value.replace(/"/g, "%22");
 }
 
 function isImageUrl(url) {
   const value = String(url || "");
+
   return (
     /\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(value) ||
     value.includes("cdn.doppel.fit") ||
-    value.includes("images-ext-1.discordapp.net") ||
-    value.includes("cdn.discordapp.com")
+    value.includes("cdn.discordapp.com") ||
+    value.includes("media.discordapp.net")
   );
 }
 
-function normalizeAgentName(label) {
-  const lower = String(label || "").toLowerCase();
+function normalizeImageKey(url) {
+  let value = String(url || "");
 
-  for (const agent of WANTED_AGENTS) {
-    if (lower.includes(agent.toLowerCase())) return agent;
+  try {
+    value = decodeURIComponent(value);
+  } catch {}
+
+  value = value
+    .replace(/^https?:\/\/images-ext-\d+\.discordapp\.net\/external\/[^/]+\//, "")
+    .replace(/^https?:\/\/media\.discordapp\.net\//, "")
+    .replace(/^https?:\/\/cdn\.discordapp\.com\//, "")
+    .replace(/^https?:\/\/cdn\.doppel\.fit\//, "")
+    .split("?")[0]
+    .split("#")[0];
+
+  value = value
+    .replace(/\/format\/webp/gi, "")
+    .replace(/\/width\/\d+/gi, "")
+    .replace(/\/height\/\d+/gi, "");
+
+  return value;
+}
+
+function dedupeImageUrls(urls) {
+  const seen = new Set();
+  const result = [];
+
+  for (const url of urls) {
+    if (!url) continue;
+
+    const key = normalizeImageKey(url);
+
+    if (seen.has(key)) {
+      console.log(`Removed duplicate image URL: ${url}`);
+      continue;
+    }
+
+    seen.add(key);
+    result.push(url);
+  }
+
+  return result;
+}
+
+function normalizeAgentName(label) {
+  const lower = String(label || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/\./g, "");
+
+  const aliases = {
+    doppelfit: "Doppel.fit",
+    litbuy: "Litbuy",
+    hipobuy: "Hipobuy",
+    oopbuy: "OopBuy",
+    kakobuy: "KakoBuy",
+    lovegobuy: "Lovegobuy",
+    acbuy: "ACBuy",
+    cssbuy: "CSSBuy",
+    mulebuy: "MuleBuy",
+    superbuy: "Superbuy",
+    cnfans: "CNFans",
+  };
+
+  for (const [key, value] of Object.entries(aliases)) {
+    if (lower.includes(key)) return value;
   }
 
   return "";
@@ -100,7 +172,9 @@ function collectFromMessage(message) {
   const imageUrls = [];
   const buttonLinks = new Map();
 
-  if (message.content) textParts.push(message.content);
+  if (message.content) {
+    textParts.push(message.content);
+  }
 
   for (const attachment of message.attachments?.values?.() || []) {
     if (attachment.url && isImageUrl(attachment.url)) {
@@ -130,7 +204,9 @@ function collectFromMessage(message) {
       }
     }
 
-    for (const key of ["url", "proxy_url", "src"]) {
+    // Only use original URLs, not proxy_url.
+    // proxy_url often points to the same image and causes duplicates.
+    for (const key of ["url", "src"]) {
       if (typeof obj[key] === "string" && isImageUrl(obj[key])) {
         imageUrls.push(obj[key]);
       }
@@ -139,13 +215,6 @@ function collectFromMessage(message) {
     if (obj.media && typeof obj.media === "object") {
       if (typeof obj.media.url === "string" && isImageUrl(obj.media.url)) {
         imageUrls.push(obj.media.url);
-      }
-
-      if (
-        typeof obj.media.proxy_url === "string" &&
-        isImageUrl(obj.media.proxy_url)
-      ) {
-        imageUrls.push(obj.media.proxy_url);
       }
     }
 
@@ -161,9 +230,15 @@ function collectFromMessage(message) {
     }
   });
 
+  const uniqueImages = dedupeImageUrls(imageUrls);
+
+  console.log(
+    `Found ${imageUrls.length} raw image URLs, ${uniqueImages.length} unique image URLs`
+  );
+
   return {
     text: [...new Set(textParts.filter(Boolean))].join("\n"),
-    imageUrls: [...new Set(imageUrls.filter(Boolean))].slice(0, 10),
+    imageUrls: uniqueImages.slice(0, 10),
     buttonLinks,
   };
 }
@@ -171,7 +246,9 @@ function collectFromMessage(message) {
 function extractProductName(text) {
   const input = String(text || "");
 
-  const markdownMatch = input.match(/\[([^\]]{3,200})\]\((https?:\/\/[^)]+)\)/);
+  const markdownMatch = input.match(
+    /\[([^\]]{3,200})\]\((https?:\/\/[^)]+)\)/
+  );
 
   if (markdownMatch) {
     return markdownMatch[1].trim();
