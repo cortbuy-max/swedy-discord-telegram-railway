@@ -11,6 +11,12 @@ const POST_DELAY_SECONDS = Number(process.env.POST_DELAY_SECONDS || 30);
 const HELP_LINK = "https://t.me/swedyfinder";
 const SPREADSHEET_LINK = "https://doppel.fit/@swedyfinds";
 
+const EMOJI_DNA = "\u{1F9EC}";
+const EMOJI_MONEY = "\u{1F4B6}";
+const EMOJI_LINK = "\u{1F517}";
+const EMOJI_HELP = "\u{2753}";
+const EMOJI_CHEERS = "\u{1F942}";
+
 const WANTED_AGENTS = [
   "Litbuy",
   "Hipobuy",
@@ -64,9 +70,11 @@ function isImageUrl(url) {
 
 function normalizeAgentName(label) {
   const lower = String(label || "").toLowerCase();
+
   for (const agent of WANTED_AGENTS) {
     if (lower.includes(agent.toLowerCase())) return agent;
   }
+
   return "";
 }
 
@@ -78,6 +86,7 @@ function walk(value, visitor, path = []) {
 
   if (value && typeof value === "object") {
     visitor(value, path);
+
     for (const [key, val] of Object.entries(value)) {
       walk(val, visitor, path.concat(key));
     }
@@ -94,23 +103,26 @@ function collectFromMessage(message) {
   if (message.content) textParts.push(message.content);
 
   for (const attachment of message.attachments?.values?.() || []) {
-    if (attachment.url && isImageUrl(attachment.url)) imageUrls.push(attachment.url);
+    if (attachment.url && isImageUrl(attachment.url)) {
+      imageUrls.push(attachment.url);
+    }
   }
 
   for (const embed of message.embeds || []) {
     if (embed.title) textParts.push(embed.title);
     if (embed.description) textParts.push(embed.description);
+
     if (Array.isArray(embed.fields)) {
       for (const field of embed.fields) {
         textParts.push(`${field.name || ""} ${field.value || ""}`);
       }
     }
+
     if (embed.image?.url) imageUrls.push(embed.image.url);
     if (embed.thumbnail?.url) imageUrls.push(embed.thumbnail.url);
     if (embed.url) textParts.push(embed.url);
   }
 
-  // Important for Discord posts made with Components / Media / Buttons.
   walk(raw, (obj) => {
     for (const key of ["content", "text", "title", "description"]) {
       if (typeof obj[key] === "string" && obj[key].trim()) {
@@ -125,8 +137,16 @@ function collectFromMessage(message) {
     }
 
     if (obj.media && typeof obj.media === "object") {
-      if (typeof obj.media.url === "string" && isImageUrl(obj.media.url)) imageUrls.push(obj.media.url);
-      if (typeof obj.media.proxy_url === "string" && isImageUrl(obj.media.proxy_url)) imageUrls.push(obj.media.proxy_url);
+      if (typeof obj.media.url === "string" && isImageUrl(obj.media.url)) {
+        imageUrls.push(obj.media.url);
+      }
+
+      if (
+        typeof obj.media.proxy_url === "string" &&
+        isImageUrl(obj.media.proxy_url)
+      ) {
+        imageUrls.push(obj.media.proxy_url);
+      }
     }
 
     const label = obj.label || obj?.data?.label;
@@ -134,6 +154,7 @@ function collectFromMessage(message) {
 
     if (label && url) {
       const agent = normalizeAgentName(label);
+
       if (agent && !buttonLinks.has(agent)) {
         buttonLinks.set(agent, url);
       }
@@ -151,7 +172,10 @@ function extractProductName(text) {
   const input = String(text || "");
 
   const markdownMatch = input.match(/\[([^\]]{3,200})\]\((https?:\/\/[^)]+)\)/);
-  if (markdownMatch) return markdownMatch[1].trim();
+
+  if (markdownMatch) {
+    return markdownMatch[1].trim();
+  }
 
   const lines = input
     .split(/\n+/)
@@ -159,11 +183,12 @@ function extractProductName(text) {
     .filter(Boolean);
 
   for (const line of lines) {
-    if (/[$â¬]\s?\d/.test(line)) continue;
+    if (/[$€]\s?\d/.test(line)) continue;
     if (/\d+\s*QCs?/i.test(line)) continue;
     if (/\d+\s*(g|kg)\b/i.test(line)) continue;
-    if (/\d+(?:[.,]\d+)?\s*[ÃxX]\s*\d+/i.test(line)) continue;
+    if (/\d+(?:[.,]\d+)?\s*[×xX]\s*\d+/i.test(line)) continue;
     if (line.startsWith("http")) continue;
+
     return line.slice(0, 120);
   }
 
@@ -172,14 +197,18 @@ function extractProductName(text) {
 
 function extractPrice(text) {
   const input = String(text || "");
+
   const patterns = [
-    /[$â¬]\s?\d+(?:[.,]\d{1,2})?/,
-    /\d+(?:[.,]\d{1,2})?\s?[$â¬]/,
+    /[$€]\s?\d+(?:[.,]\d{1,2})?/,
+    /\d+(?:[.,]\d{1,2})?\s?[$€]/,
   ];
 
   for (const pattern of patterns) {
     const match = input.match(pattern);
-    if (match) return match[0].replace(/\s/g, "");
+
+    if (match) {
+      return match[0].replace(/\s/g, "");
+    }
   }
 
   return "";
@@ -190,8 +219,12 @@ function buildAgentLines(buttonLinks) {
 
   for (const agent of WANTED_AGENTS) {
     const url = buttonLinks.get(agent);
+
     if (!url) continue;
-    lines.push(`<a href="${safeUrl(url)}">ð ${escapeHtml(agent)}</a>`);
+
+    lines.push(
+      `<a href="${safeUrl(url)}">${EMOJI_LINK} ${escapeHtml(agent)}</a>`
+    );
   }
 
   return lines.join("\n");
@@ -200,17 +233,25 @@ function buildAgentLines(buttonLinks) {
 function buildCaption({ productName, price, agentLines }) {
   const lines = [];
 
-  lines.push(`ð§¬ <b>${escapeHtml(productName)}</b> ð§¬`);
+  lines.push(`${EMOJI_DNA} <b>${escapeHtml(productName)}</b> ${EMOJI_DNA}`);
 
-  if (price) lines.push(`ð¶ Price: ${escapeHtml(price)}`);
-
-  lines.push("");
-
-  if (agentLines) lines.push(agentLines);
+  if (price) {
+    lines.push(`${EMOJI_MONEY} Price: ${escapeHtml(price)}`);
+  }
 
   lines.push("");
-  lines.push(`<a href="${HELP_LINK}">â ASK HERE FOR HELP &amp; FINDS</a>`);
-  lines.push(`<a href="${SPREADSHEET_LINK}">ð¥ SWEDY SPREADSHEET ð¥</a>`);
+
+  if (agentLines) {
+    lines.push(agentLines);
+  }
+
+  lines.push("");
+  lines.push(
+    `<a href="${HELP_LINK}">${EMOJI_HELP} ASK HERE FOR HELP &amp; FINDS</a>`
+  );
+  lines.push(
+    `<a href="${SPREADSHEET_LINK}">${EMOJI_CHEERS} SWEDY SPREADSHEET ${EMOJI_CHEERS}</a>`
+  );
 
   return lines.join("\n").trim();
 }
@@ -221,12 +262,15 @@ function splitTelegramText(text, maxLength = 4096) {
 
   while (rest.length > maxLength) {
     let cut = rest.lastIndexOf("\n", maxLength);
+
     if (cut < 1000) cut = maxLength;
+
     chunks.push(rest.slice(0, cut));
     rest = rest.slice(cut).trimStart();
   }
 
   if (rest) chunks.push(rest);
+
   return chunks;
 }
 
@@ -244,8 +288,10 @@ async function telegramPost(method, payload) {
 
     if (error.response?.status === 429 && data?.parameters?.retry_after) {
       const wait = Number(data.parameters.retry_after) + 1;
+
       console.log(`Telegram rate limit. Waiting ${wait}s`);
       await sleep(wait * 1000);
+
       const retry = await telegram.post(`/${method}`, payload);
       return retry.data;
     }
@@ -272,7 +318,9 @@ async function sendText(text) {
 
 async function sendProduct({ imageUrls, caption }) {
   if (imageUrls.length > 1) {
-    const mediaCaption = caption.length <= 1024 ? caption : caption.slice(0, 950) + "\n\n...";
+    const mediaCaption =
+      caption.length <= 1024 ? caption : caption.slice(0, 950) + "\n\n...";
+
     const media = imageUrls.map((url, index) => {
       const item = {
         type: "photo",
@@ -289,6 +337,7 @@ async function sendProduct({ imageUrls, caption }) {
 
     try {
       console.log(`Trying to send MediaGroup with ${imageUrls.length} images`);
+
       await telegramPost("sendMediaGroup", {
         chat_id: TELEGRAM_CHAT_ID,
         media,
@@ -309,7 +358,8 @@ async function sendProduct({ imageUrls, caption }) {
   }
 
   if (imageUrls.length >= 1) {
-    const photoCaption = caption.length <= 1024 ? caption : caption.slice(0, 950) + "\n\n...";
+    const photoCaption =
+      caption.length <= 1024 ? caption : caption.slice(0, 950) + "\n\n...";
 
     await telegramPost("sendPhoto", {
       chat_id: TELEGRAM_CHAT_ID,
@@ -337,6 +387,7 @@ const processedIds = new Set();
 
 async function processQueue() {
   if (isProcessing) return;
+
   isProcessing = true;
 
   try {
@@ -360,7 +411,10 @@ async function processQueue() {
         console.log("Product:", productName);
         console.log("Price:", price || "none");
         console.log("Images:", collected.imageUrls.length);
-        console.log("Agents:", [...collected.buttonLinks.keys()].join(", ") || "none");
+        console.log(
+          "Agents:",
+          [...collected.buttonLinks.keys()].join(", ") || "none"
+        );
 
         await sendProduct({
           imageUrls: collected.imageUrls,
@@ -369,7 +423,10 @@ async function processQueue() {
 
         console.log(`Finished Discord message ${message.id}`);
       } catch (error) {
-        console.error(`Error processing ${message.id}:`, error.response?.data || error.message);
+        console.error(
+          `Error processing ${message.id}:`,
+          error.response?.data || error.message
+        );
       }
 
       console.log(`Waiting ${POST_DELAY_SECONDS}s before next post`);
@@ -377,12 +434,22 @@ async function processQueue() {
     }
   } finally {
     isProcessing = false;
-    if (queue.length > 0) processQueue();
+
+    if (queue.length > 0) {
+      processQueue();
+    }
   }
 }
 
-if (!DISCORD_TOKEN || !TELEGRAM_TOKEN || !DISCORD_CHANNEL_ID || !TELEGRAM_CHAT_ID) {
-  console.error("Missing env vars. Required: DISCORD_TOKEN, TELEGRAM_TOKEN, DISCORD_CHANNEL_ID, TELEGRAM_CHAT_ID");
+if (
+  !DISCORD_TOKEN ||
+  !TELEGRAM_TOKEN ||
+  !DISCORD_CHANNEL_ID ||
+  !TELEGRAM_CHAT_ID
+) {
+  console.error(
+    "Missing env vars. Required: DISCORD_TOKEN, TELEGRAM_TOKEN, DISCORD_CHANNEL_ID, TELEGRAM_CHAT_ID"
+  );
 }
 
 const client = new Client({
@@ -410,17 +477,22 @@ client.on("messageCreate", (message) => {
   }
 
   processedIds.add(message.id);
+
   if (processedIds.size > 500) {
     const first = processedIds.values().next().value;
     processedIds.delete(first);
   }
 
   queue.push(message);
+
   console.log(`Added to queue ${message.id}. Queue size: ${queue.length}`);
+
   processQueue();
 });
 
-client.on("error", (error) => console.error("Discord client error:", error.message));
+client.on("error", (error) =>
+  console.error("Discord client error:", error.message)
+);
 client.on("shardDisconnect", () => console.log("Discord disconnected"));
 client.on("shardReconnecting", () => console.log("Discord reconnecting"));
 client.on("shardResume", () => console.log("Discord reconnected"));
