@@ -20,7 +20,6 @@ const WANTED_AGENTS = [
   "MuleBuy",
 ];
 
-// Small web server, so Railway has a web process.
 const app = express();
 
 app.get("/", (req, res) => {
@@ -111,8 +110,7 @@ function collectFromMessage(message) {
     if (embed.url) textParts.push(embed.url);
   }
 
-  // This is the important part for your Discord posts:
-  // They are not normal messages; they use components, media and buttons.
+  // Important for Discord posts made with Components / Media / Buttons.
   walk(raw, (obj) => {
     for (const key of ["content", "text", "title", "description"]) {
       if (typeof obj[key] === "string" && obj[key].trim()) {
@@ -133,6 +131,7 @@ function collectFromMessage(message) {
 
     const label = obj.label || obj?.data?.label;
     const url = obj.url || obj?.data?.url;
+
     if (label && url) {
       const agent = normalizeAgentName(label);
       if (agent && !buttonLinks.has(agent)) {
@@ -143,7 +142,7 @@ function collectFromMessage(message) {
 
   return {
     text: [...new Set(textParts.filter(Boolean))].join("\n"),
-    imageUrls: [...new Set(imageUrls.filter(Boolean))],
+    imageUrls: [...new Set(imageUrls.filter(Boolean))].slice(0, 10),
     buttonLinks,
   };
 }
@@ -160,10 +159,10 @@ function extractProductName(text) {
     .filter(Boolean);
 
   for (const line of lines) {
-    if (/[$€]\s?\d/.test(line)) continue;
+    if (/[$â¬]\s?\d/.test(line)) continue;
     if (/\d+\s*QCs?/i.test(line)) continue;
     if (/\d+\s*(g|kg)\b/i.test(line)) continue;
-    if (/\d+(?:[.,]\d+)?\s*[×xX]\s*\d+/i.test(line)) continue;
+    if (/\d+(?:[.,]\d+)?\s*[ÃxX]\s*\d+/i.test(line)) continue;
     if (line.startsWith("http")) continue;
     return line.slice(0, 120);
   }
@@ -174,8 +173,8 @@ function extractProductName(text) {
 function extractPrice(text) {
   const input = String(text || "");
   const patterns = [
-    /[$€]\s?\d+(?:[.,]\d{1,2})?/,
-    /\d+(?:[.,]\d{1,2})?\s?[$€]/,
+    /[$â¬]\s?\d+(?:[.,]\d{1,2})?/,
+    /\d+(?:[.,]\d{1,2})?\s?[$â¬]/,
   ];
 
   for (const pattern of patterns) {
@@ -192,29 +191,26 @@ function buildAgentLines(buttonLinks) {
   for (const agent of WANTED_AGENTS) {
     const url = buttonLinks.get(agent);
     if (!url) continue;
-    lines.push(`<a href="${safeUrl(url)}">🔗 ${escapeHtml(agent)}</a>`);
+    lines.push(`<a href="${safeUrl(url)}">ð ${escapeHtml(agent)}</a>`);
   }
 
   return lines.join("\n");
 }
 
-function buildTelegramMessage({ imageUrl, productName, price, agentLines }) {
+function buildCaption({ productName, price, agentLines }) {
   const lines = [];
 
-  // Raw image URL first, so Telegram can create a link preview.
-  if (imageUrl) lines.push(imageUrl);
+  lines.push(`ð§¬ <b>${escapeHtml(productName)}</b> ð§¬`);
 
-  lines.push(`🧬 <b>${escapeHtml(productName)}</b> 🧬`);
-
-  if (price) lines.push(`💶 Price: ${escapeHtml(price)}`);
+  if (price) lines.push(`ð¶ Price: ${escapeHtml(price)}`);
 
   lines.push("");
 
   if (agentLines) lines.push(agentLines);
 
   lines.push("");
-  lines.push(`<a href="${HELP_LINK}">❓ ASK HERE FOR HELP &amp; FINDS</a>`);
-  lines.push(`<a href="${SPREADSHEET_LINK}">🥂 SWEDY SPREADSHEET 🥂</a>`);
+  lines.push(`<a href="${HELP_LINK}">â ASK HERE FOR HELP &amp; FINDS</a>`);
+  lines.push(`<a href="${SPREADSHEET_LINK}">ð¥ SWEDY SPREADSHEET ð¥</a>`);
 
   return lines.join("\n").trim();
 }
@@ -239,40 +235,100 @@ const telegram = axios.create({
   timeout: 30000,
 });
 
-async function sendTelegramMessage(text) {
+async function telegramPost(method, payload) {
+  try {
+    const response = await telegram.post(`/${method}`, payload);
+    return response.data;
+  } catch (error) {
+    const data = error.response?.data;
+
+    if (error.response?.status === 429 && data?.parameters?.retry_after) {
+      const wait = Number(data.parameters.retry_after) + 1;
+      console.log(`Telegram rate limit. Waiting ${wait}s`);
+      await sleep(wait * 1000);
+      const retry = await telegram.post(`/${method}`, payload);
+      return retry.data;
+    }
+
+    throw error;
+  }
+}
+
+async function sendText(text) {
   const chunks = splitTelegramText(text);
 
   for (const chunk of chunks) {
+    await telegramPost("sendMessage", {
+      chat_id: TELEGRAM_CHAT_ID,
+      text: chunk,
+      parse_mode: "HTML",
+      disable_web_page_preview: false,
+    });
+
+    console.log("Sent Telegram text");
+    await sleep(1000);
+  }
+}
+
+async function sendProduct({ imageUrls, caption }) {
+  if (imageUrls.length > 1) {
+    const mediaCaption = caption.length <= 1024 ? caption : caption.slice(0, 950) + "\n\n...";
+    const media = imageUrls.map((url, index) => {
+      const item = {
+        type: "photo",
+        media: url,
+      };
+
+      if (index === 0) {
+        item.caption = mediaCaption;
+        item.parse_mode = "HTML";
+      }
+
+      return item;
+    });
+
     try {
-      await telegram.post("/sendMessage", {
+      console.log(`Trying to send MediaGroup with ${imageUrls.length} images`);
+      await telegramPost("sendMediaGroup", {
         chat_id: TELEGRAM_CHAT_ID,
-        text: chunk,
-        parse_mode: "HTML",
-        disable_web_page_preview: false,
+        media,
       });
 
-      console.log("Sent Telegram message");
-      await sleep(1000);
-    } catch (error) {
-      const data = error.response?.data;
+      console.log("Sent MediaGroup with caption");
 
-      if (error.response?.status === 429 && data?.parameters?.retry_after) {
-        const wait = Number(data.parameters.retry_after) + 1;
-        console.log(`Telegram rate limit. Waiting ${wait}s`);
-        await sleep(wait * 1000);
-
-        await telegram.post("/sendMessage", {
-          chat_id: TELEGRAM_CHAT_ID,
-          text: chunk,
-          parse_mode: "HTML",
-          disable_web_page_preview: false,
-        });
-      } else {
-        console.error("Telegram error:", data || error.message);
-        throw error;
+      if (caption.length > 1024) {
+        await sleep(1000);
+        await sendText(caption);
       }
+
+      return;
+    } catch (error) {
+      console.error("MediaGroup failed. Falling back to first image.");
+      console.error("MediaGroup error:", error.response?.data || error.message);
     }
   }
+
+  if (imageUrls.length >= 1) {
+    const photoCaption = caption.length <= 1024 ? caption : caption.slice(0, 950) + "\n\n...";
+
+    await telegramPost("sendPhoto", {
+      chat_id: TELEGRAM_CHAT_ID,
+      photo: imageUrls[0],
+      caption: photoCaption,
+      parse_mode: "HTML",
+    });
+
+    console.log("Sent one photo with caption");
+
+    if (caption.length > 1024) {
+      await sleep(1000);
+      await sendText(caption);
+    }
+
+    return;
+  }
+
+  await sendText(caption);
 }
 
 const queue = [];
@@ -293,11 +349,9 @@ async function processQueue() {
         const collected = collectFromMessage(message);
         const productName = extractProductName(collected.text);
         const price = extractPrice(collected.text);
-        const imageUrl = collected.imageUrls[0] || "";
         const agentLines = buildAgentLines(collected.buttonLinks);
 
-        const telegramText = buildTelegramMessage({
-          imageUrl,
+        const caption = buildCaption({
           productName,
           price,
           agentLines,
@@ -305,14 +359,17 @@ async function processQueue() {
 
         console.log("Product:", productName);
         console.log("Price:", price || "none");
-        console.log("Image:", imageUrl ? "yes" : "no");
+        console.log("Images:", collected.imageUrls.length);
         console.log("Agents:", [...collected.buttonLinks.keys()].join(", ") || "none");
 
-        await sendTelegramMessage(telegramText);
+        await sendProduct({
+          imageUrls: collected.imageUrls,
+          caption,
+        });
 
         console.log(`Finished Discord message ${message.id}`);
       } catch (error) {
-        console.error(`Error processing ${message.id}:`, error.message);
+        console.error(`Error processing ${message.id}:`, error.response?.data || error.message);
       }
 
       console.log(`Waiting ${POST_DELAY_SECONDS}s before next post`);
