@@ -16,6 +16,7 @@ const EMOJI_MONEY = "\u{1F4B6}";
 const EMOJI_LINK = "\u{1F517}";
 const EMOJI_HELP = "\u{2753}";
 const EMOJI_CHEERS = "\u{1F942}";
+const EMOJI_STAR = "\u{2B50}";
 
 const WANTED_AGENTS = [
   "Litbuy",
@@ -68,8 +69,6 @@ function isImageUrl(url) {
   );
 }
 
-// Added only for duplicate-image prevention.
-// Everything else stays like the old working code.
 function normalizeImageKey(url) {
   let value = String(url || "");
 
@@ -265,7 +264,18 @@ function extractPrice(text) {
 function buildAgentLines(buttonLinks) {
   const lines = [];
 
+  const cssbuyUrl = buttonLinks.get("CSSBuy");
+
+  if (cssbuyUrl) {
+    lines.push(
+      `<a href="${safeUrl(cssbuyUrl)}">${EMOJI_STAR} <b>BEST OPTION: CSSBuy</b> ${EMOJI_STAR}</a>`
+    );
+    lines.push("");
+  }
+
   for (const agent of WANTED_AGENTS) {
+    if (agent === "CSSBuy") continue;
+
     const url = buttonLinks.get(agent);
 
     if (!url) continue;
