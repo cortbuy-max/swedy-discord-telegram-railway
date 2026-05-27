@@ -42,7 +42,6 @@ app.get("/health", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
   console.log(`Web server running on port ${PORT}`);
 });
@@ -74,6 +73,7 @@ function isImageUrl(url) {
   return (
     /\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(value) ||
     value.includes("cdn.doppel.fit") ||
+    value.includes("images-ext-1.discordapp.net") ||
     value.includes("cdn.discordapp.com") ||
     value.includes("media.discordapp.net")
   );
@@ -97,7 +97,8 @@ function normalizeImageKey(url) {
   value = value
     .replace(/\/format\/webp/gi, "")
     .replace(/\/width\/\d+/gi, "")
-    .replace(/\/height\/\d+/gi, "");
+    .replace(/\/height\/\d+/gi, "")
+    .replace(/format=webp/gi, "");
 
   return value;
 }
@@ -112,7 +113,7 @@ function dedupeImageUrls(urls) {
     const key = normalizeImageKey(url);
 
     if (seen.has(key)) {
-      console.log(`Removed duplicate image URL: ${url}`);
+      console.log("Removed duplicate image:", url);
       continue;
     }
 
@@ -204,9 +205,7 @@ function collectFromMessage(message) {
       }
     }
 
-    // Only use original URLs, not proxy_url.
-    // proxy_url often points to the same image and causes duplicates.
-    for (const key of ["url", "src"]) {
+    for (const key of ["url", "proxy_url", "src"]) {
       if (typeof obj[key] === "string" && isImageUrl(obj[key])) {
         imageUrls.push(obj[key]);
       }
@@ -215,6 +214,13 @@ function collectFromMessage(message) {
     if (obj.media && typeof obj.media === "object") {
       if (typeof obj.media.url === "string" && isImageUrl(obj.media.url)) {
         imageUrls.push(obj.media.url);
+      }
+
+      if (
+        typeof obj.media.proxy_url === "string" &&
+        isImageUrl(obj.media.proxy_url)
+      ) {
+        imageUrls.push(obj.media.proxy_url);
       }
     }
 
