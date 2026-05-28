@@ -76,16 +76,13 @@ function normalizeImageKey(url) {
     value = decodeURIComponent(value);
   } catch {}
 
-  return value
-    .replace(
-      /^https?:\/\/images-ext-\d+\.discordapp\.net\/external\/[^/]+\//,
-      ""
-    )
-    .replace(/^https?:\/\/media\.discordapp\.net\//, "")
-    .replace(/^https?:\/\/cdn\.discordapp\.com\//, "")
-    .replace(/^https?:\/\/cdn\.doppel\.fit\//, "")
+  // Entferne nur die Domain, behalte den Rest der URL
+  const normalized = value
+    .replace(/^https?:\/\/[^/]+/, "")
     .split("?")[0]
     .split("#")[0];
+
+  return normalized;
 }
 
 function dedupeImageUrls(urls) {
@@ -140,13 +137,18 @@ function collectFromMessage(message) {
   const textParts = [];
   const imageUrls = [];
   const buttonLinks = new Map();
+  const seenImageKeys = new Set(); // Tracker für bereits gesehene Bilder
 
   if (message.content) textParts.push(message.content);
 
   // Sammle Bilder von Attachments
   for (const attachment of message.attachments?.values?.() || []) {
     if (attachment.url && isImageUrl(attachment.url)) {
-      imageUrls.push(attachment.url);
+      const key = normalizeImageKey(attachment.url);
+      if (!seenImageKeys.has(key)) {
+        seenImageKeys.add(key);
+        imageUrls.push(attachment.url);
+      }
     }
   }
 
@@ -161,16 +163,58 @@ function collectFromMessage(message) {
       }
     }
 
-    if (embed.image?.url) imageUrls.push(embed.image.url);
-    if (embed.thumbnail?.url) imageUrls.push(embed.thumbnail.url);
+    if (embed.image?.url) {
+      const key = normalizeImageKey(embed.image.url);
+      if (!seenImageKeys.has(key)) {
+        seenImageKeys.add(key);
+        imageUrls.push(embed.image.url);
+      }
+    }
+    if (embed.thumbnail?.url) {
+      const key = normalizeImageKey(embed.thumbnail.url);
+      if (!seenImageKeys.has(key)) {
+        seenImageKeys.add(key);
+        imageUrls.push(embed.thumbnail.url);
+      }
+    }
     if (embed.url) textParts.push(embed.url);
   }
 
-  // Walk ONLY für Text und Button-Links, NICHT für Bilder
+  // Walk für Text, Button-Links UND zusätzliche Bilder (aber mit Dedup-Check)
   walk(raw, (obj) => {
     for (const key of ["content", "text", "title", "description"]) {
       if (typeof obj[key] === "string" && obj[key].trim()) {
         textParts.push(obj[key]);
+      }
+    }
+
+    // Bild-URLs sammeln mit Dedup-Check
+    for (const key of ["url", "proxy_url", "src"]) {
+      if (typeof obj[key] === "string" && isImageUrl(obj[key])) {
+        const imageKey = normalizeImageKey(obj[key]);
+        if (!seenImageKeys.has(imageKey)) {
+          seenImageKeys.add(imageKey);
+          imageUrls.push(obj[key]);
+        }
+      }
+    }
+
+    // Media-Objekte
+    if (obj.media && typeof obj.media === "object") {
+      if (typeof obj.media.url === "string" && isImageUrl(obj.media.url)) {
+        const imageKey = normalizeImageKey(obj.media.url);
+        if (!seenImageKeys.has(imageKey)) {
+          seenImageKeys.add(imageKey);
+          imageUrls.push(obj.media.url);
+        }
+      }
+
+      if (typeof obj.media.proxy_url === "string" && isImageUrl(obj.media.proxy_url)) {
+        const imageKey = normalizeImageKey(obj.media.proxy_url);
+        if (!seenImageKeys.has(imageKey)) {
+          seenImageKeys.add(imageKey);
+          imageUrls.push(obj.media.proxy_url);
+        }
       }
     }
 
@@ -187,6 +231,7 @@ function collectFromMessage(message) {
     }
   });
 
+  // Finale Dedup (als Backup)
   const uniqueImages = dedupeImageUrls(imageUrls);
 
   console.log(
