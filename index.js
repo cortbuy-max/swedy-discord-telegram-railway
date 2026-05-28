@@ -85,21 +85,41 @@ function normalizeImageKey(url) {
   return normalized;
 }
 
+function extractImageId(url) {
+  // Versuche die Bild-ID aus verschiedenen URL-Formaten zu extrahieren
+  let value = String(url || "");
+
+  // Für Discord CDN URLs
+  const discordMatch = value.match(/\/([a-zA-Z0-9_-]+)\.(png|jpg|jpeg|webp|gif)/i);
+  if (discordMatch) {
+    return discordMatch[1]; // Nur der Dateiname ohne Extension
+  }
+
+  // Für Doppel.fit URLs
+  const doppelMatch = value.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
+  if (doppelMatch) {
+    return doppelMatch[1];
+  }
+
+  return value; // Fallback: ganze URL
+}
+
 function dedupeImageUrls(urls) {
-  const seen = new Set();
+  const seenIds = new Set();
   const result = [];
 
   for (const url of urls) {
     if (!url) continue;
 
-    const key = normalizeImageKey(url);
+    const imageId = extractImageId(url);
 
-    if (seen.has(key)) {
-      console.log("Removed duplicate image:", url);
+    // Checke auf Duplikate basierend auf Bild-ID
+    if (seenIds.has(imageId)) {
+      console.log("Removed duplicate image (same ID):", url);
       continue;
     }
 
-    seen.add(key);
+    seenIds.add(imageId);
     result.push(url);
   }
 
@@ -137,16 +157,16 @@ function collectFromMessage(message) {
   const textParts = [];
   const imageUrls = [];
   const buttonLinks = new Map();
-  const seenImageKeys = new Set(); // Tracker für bereits gesehene Bilder
+  const seenImageIds = new Set(); // Tracker für Bild-IDs statt URLs
 
   if (message.content) textParts.push(message.content);
 
   // Sammle Bilder von Attachments
   for (const attachment of message.attachments?.values?.() || []) {
     if (attachment.url && isImageUrl(attachment.url)) {
-      const key = normalizeImageKey(attachment.url);
-      if (!seenImageKeys.has(key)) {
-        seenImageKeys.add(key);
+      const id = extractImageId(attachment.url);
+      if (!seenImageIds.has(id)) {
+        seenImageIds.add(id);
         imageUrls.push(attachment.url);
       }
     }
@@ -164,23 +184,23 @@ function collectFromMessage(message) {
     }
 
     if (embed.image?.url) {
-      const key = normalizeImageKey(embed.image.url);
-      if (!seenImageKeys.has(key)) {
-        seenImageKeys.add(key);
+      const id = extractImageId(embed.image.url);
+      if (!seenImageIds.has(id)) {
+        seenImageIds.add(id);
         imageUrls.push(embed.image.url);
       }
     }
     if (embed.thumbnail?.url) {
-      const key = normalizeImageKey(embed.thumbnail.url);
-      if (!seenImageKeys.has(key)) {
-        seenImageKeys.add(key);
+      const id = extractImageId(embed.thumbnail.url);
+      if (!seenImageIds.has(id)) {
+        seenImageIds.add(id);
         imageUrls.push(embed.thumbnail.url);
       }
     }
     if (embed.url) textParts.push(embed.url);
   }
 
-  // Walk für Text, Button-Links UND zusätzliche Bilder (aber mit Dedup-Check)
+  // Walk für Text, Button-Links UND zusätzliche Bilder
   walk(raw, (obj) => {
     for (const key of ["content", "text", "title", "description"]) {
       if (typeof obj[key] === "string" && obj[key].trim()) {
@@ -188,12 +208,12 @@ function collectFromMessage(message) {
       }
     }
 
-    // Bild-URLs sammeln mit Dedup-Check
+    // Bild-URLs sammeln mit Dedup-Check basierend auf ID
     for (const key of ["url", "proxy_url", "src"]) {
       if (typeof obj[key] === "string" && isImageUrl(obj[key])) {
-        const imageKey = normalizeImageKey(obj[key]);
-        if (!seenImageKeys.has(imageKey)) {
-          seenImageKeys.add(imageKey);
+        const id = extractImageId(obj[key]);
+        if (!seenImageIds.has(id)) {
+          seenImageIds.add(id);
           imageUrls.push(obj[key]);
         }
       }
@@ -202,17 +222,17 @@ function collectFromMessage(message) {
     // Media-Objekte
     if (obj.media && typeof obj.media === "object") {
       if (typeof obj.media.url === "string" && isImageUrl(obj.media.url)) {
-        const imageKey = normalizeImageKey(obj.media.url);
-        if (!seenImageKeys.has(imageKey)) {
-          seenImageKeys.add(imageKey);
+        const id = extractImageId(obj.media.url);
+        if (!seenImageIds.has(id)) {
+          seenImageIds.add(id);
           imageUrls.push(obj.media.url);
         }
       }
 
       if (typeof obj.media.proxy_url === "string" && isImageUrl(obj.media.proxy_url)) {
-        const imageKey = normalizeImageKey(obj.media.proxy_url);
-        if (!seenImageKeys.has(imageKey)) {
-          seenImageKeys.add(imageKey);
+        const id = extractImageId(obj.media.proxy_url);
+        if (!seenImageIds.has(id)) {
+          seenImageIds.add(id);
           imageUrls.push(obj.media.proxy_url);
         }
       }
@@ -231,16 +251,13 @@ function collectFromMessage(message) {
     }
   });
 
-  // Finale Dedup (als Backup)
-  const uniqueImages = dedupeImageUrls(imageUrls);
-
   console.log(
-    `Found ${imageUrls.length} raw image URLs, ${uniqueImages.length} unique image URLs`
+    `Found ${imageUrls.length} unique image URLs (deduplicated during collection)`
   );
 
   return {
     text: [...new Set(textParts.filter(Boolean))].join("\n"),
-    imageUrls: uniqueImages.slice(0, 10),
+    imageUrls: imageUrls.slice(0, 10),
     buttonLinks,
   };
 }
