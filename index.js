@@ -143,12 +143,14 @@ function collectFromMessage(message) {
 
   if (message.content) textParts.push(message.content);
 
+  // Sammle Bilder von Attachments
   for (const attachment of message.attachments?.values?.() || []) {
     if (attachment.url && isImageUrl(attachment.url)) {
       imageUrls.push(attachment.url);
     }
   }
 
+  // Sammle Bilder von Embeds
   for (const embed of message.embeds || []) {
     if (embed.title) textParts.push(embed.title);
     if (embed.description) textParts.push(embed.description);
@@ -164,6 +166,7 @@ function collectFromMessage(message) {
     if (embed.url) textParts.push(embed.url);
   }
 
+  // Walk ONLY für Text und Button-Links, NICHT für Bilder
   walk(raw, (obj) => {
     for (const key of ["content", "text", "title", "description"]) {
       if (typeof obj[key] === "string" && obj[key].trim()) {
@@ -171,25 +174,7 @@ function collectFromMessage(message) {
       }
     }
 
-    for (const key of ["url", "proxy_url", "src"]) {
-      if (typeof obj[key] === "string" && isImageUrl(obj[key])) {
-        imageUrls.push(obj[key]);
-      }
-    }
-
-    if (obj.media && typeof obj.media === "object") {
-      if (typeof obj.media.url === "string" && isImageUrl(obj.media.url)) {
-        imageUrls.push(obj.media.url);
-      }
-
-      if (
-        typeof obj.media.proxy_url === "string" &&
-        isImageUrl(obj.media.proxy_url)
-      ) {
-        imageUrls.push(obj.media.proxy_url);
-      }
-    }
-
+    // Button-Links sammeln
     const label = obj.label || obj?.data?.label;
     const url = obj.url || obj?.data?.url;
 
