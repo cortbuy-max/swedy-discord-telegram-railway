@@ -10,7 +10,8 @@ const POST_DELAY_SECONDS = Number(process.env.POST_DELAY_SECONDS || 30);
 
 const HELP_LINK = "https://t.me/swedyfinder";
 const SPREADSHEET_LINK = "https://doppel.fit/@swedyfinds";
-const LITBUY_COUPON_LINK = "https://m.litbuy.com/pages/register/index?inviteCode=Z4KS78MR3";
+const LITBUY_COUPON_LINK =
+  "https://m.litbuy.com/pages/register/index?inviteCode=Z4KS78MR3";
 
 const EMOJI_DNA = "\u{1F9EC}";
 const EMOJI_MONEY = "\u{1F4B6}";
@@ -40,6 +41,7 @@ app.get("/health", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
   console.log(`Web server running on port ${PORT}`);
 });
@@ -57,71 +59,68 @@ function escapeHtml(value) {
 
 function safeUrl(url) {
   const value = String(url || "").trim();
-  if (!value.startsWith("http://") && !value.startsWith("https://")) return "";
+
+  if (!value.startsWith("http://") && !value.startsWith("https://")) {
+    return "";
+  }
+
   return value.replace(/"/g, "%22");
 }
 
 function isImageUrl(url) {
   const value = String(url || "");
+
   return (
     /\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(value) ||
     value.includes("cdn.doppel.fit") ||
     value.includes("images-ext-1.discordapp.net") ||
-    value.includes("cdn.discordapp.com")
+    value.includes("cdn.discordapp.com") ||
+    value.includes("media.discordapp.net")
   );
 }
 
-function normalizeImageKey(url) {
+function extractImageId(url) {
   let value = String(url || "");
 
   try {
     value = decodeURIComponent(value);
   } catch {}
 
-  // Entferne nur die Domain, behalte den Rest der URL
-  const normalized = value
-    .replace(/^https?:\/\/[^/]+/, "")
-    .split("?")[0]
-    .split("#")[0];
+  value = value.split("?")[0].split("#")[0];
 
-  return normalized;
-}
+  const doppelMatch = value.match(/cdn\.doppel\.fit\/([^?#]+)/);
+  if (doppelMatch) return `doppel:${doppelMatch[1]}`;
 
-function extractImageId(url) {
-  // Versuche die Bild-ID aus verschiedenen URL-Formaten zu extrahieren
-  let value = String(url || "");
+  const discordAttachmentMatch = value.match(
+    /\/attachments\/[^/]+\/[^/]+\/([^/?#]+)/
+  );
+  if (discordAttachmentMatch) return `discord:${discordAttachmentMatch[1]}`;
 
-  // Für Discord CDN URLs
-  const discordMatch = value.match(/\/([a-zA-Z0-9_-]+)\.(png|jpg|jpeg|webp|gif)/i);
-  if (discordMatch) {
-    return discordMatch[1]; // Nur der Dateiname ohne Extension
-  }
+  const fileMatch = value.match(/\/([^/]+\.(png|jpg|jpeg|webp|gif))$/i);
+  if (fileMatch) return `file:${fileMatch[1]}`;
 
-  // Für Doppel.fit URLs
-  const doppelMatch = value.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
-  if (doppelMatch) {
-    return doppelMatch[1];
-  }
-
-  return value; // Fallback: ganze URL
+  return value
+    .replace(/^https?:\/\/images-ext-\d+\.discordapp\.net\/external\/[^/]+\//, "")
+    .replace(/^https?:\/\/media\.discordapp\.net\//, "")
+    .replace(/^https?:\/\/cdn\.discordapp\.com\//, "")
+    .replace(/^https?:\/\/cdn\.doppel\.fit\//, "");
 }
 
 function dedupeImageUrls(urls) {
-  const seenIds = new Set();
+  const seen = new Set();
   const result = [];
 
   for (const url of urls) {
     if (!url) continue;
 
-    const imageId = extractImageId(url);
+    const id = extractImageId(url);
 
-    // Checke auf Duplikate basierend auf Bild-ID
-    if (seenIds.has(imageId)) {
-      console.log("Removed duplicate image (same ID):", url);
+    if (seen.has(id)) {
+      console.log("Removed duplicate image:", url);
       continue;
     }
 
-    seenIds.add(imageId);
+    seen.add(id);
     result.push(url);
   }
 
@@ -159,22 +158,15 @@ function collectFromMessage(message) {
   const textParts = [];
   const imageUrls = [];
   const buttonLinks = new Map();
-  const seenImageIds = new Set(); // Tracker für Bild-IDs statt URLs
 
   if (message.content) textParts.push(message.content);
 
-  // Sammle Bilder von Attachments
   for (const attachment of message.attachments?.values?.() || []) {
     if (attachment.url && isImageUrl(attachment.url)) {
-      const id = extractImageId(attachment.url);
-      if (!seenImageIds.has(id)) {
-        seenImageIds.add(id);
-        imageUrls.push(attachment.url);
-      }
+      imageUrls.push(attachment.url);
     }
   }
 
-  // Sammle Bilder von Embeds
   for (const embed of message.embeds || []) {
     if (embed.title) textParts.push(embed.title);
     if (embed.description) textParts.push(embed.description);
@@ -185,24 +177,11 @@ function collectFromMessage(message) {
       }
     }
 
-    if (embed.image?.url) {
-      const id = extractImageId(embed.image.url);
-      if (!seenImageIds.has(id)) {
-        seenImageIds.add(id);
-        imageUrls.push(embed.image.url);
-      }
-    }
-    if (embed.thumbnail?.url) {
-      const id = extractImageId(embed.thumbnail.url);
-      if (!seenImageIds.has(id)) {
-        seenImageIds.add(id);
-        imageUrls.push(embed.thumbnail.url);
-      }
-    }
+    if (embed.image?.url) imageUrls.push(embed.image.url);
+    if (embed.thumbnail?.url) imageUrls.push(embed.thumbnail.url);
     if (embed.url) textParts.push(embed.url);
   }
 
-  // Walk für Text, Button-Links UND zusätzliche Bilder
   walk(raw, (obj) => {
     for (const key of ["content", "text", "title", "description"]) {
       if (typeof obj[key] === "string" && obj[key].trim()) {
@@ -210,37 +189,25 @@ function collectFromMessage(message) {
       }
     }
 
-    // Bild-URLs sammeln mit Dedup-Check basierend auf ID
     for (const key of ["url", "proxy_url", "src"]) {
       if (typeof obj[key] === "string" && isImageUrl(obj[key])) {
-        const id = extractImageId(obj[key]);
-        if (!seenImageIds.has(id)) {
-          seenImageIds.add(id);
-          imageUrls.push(obj[key]);
-        }
+        imageUrls.push(obj[key]);
       }
     }
 
-    // Media-Objekte
     if (obj.media && typeof obj.media === "object") {
       if (typeof obj.media.url === "string" && isImageUrl(obj.media.url)) {
-        const id = extractImageId(obj.media.url);
-        if (!seenImageIds.has(id)) {
-          seenImageIds.add(id);
-          imageUrls.push(obj.media.url);
-        }
+        imageUrls.push(obj.media.url);
       }
 
-      if (typeof obj.media.proxy_url === "string" && isImageUrl(obj.media.proxy_url)) {
-        const id = extractImageId(obj.media.proxy_url);
-        if (!seenImageIds.has(id)) {
-          seenImageIds.add(id);
-          imageUrls.push(obj.media.proxy_url);
-        }
+      if (
+        typeof obj.media.proxy_url === "string" &&
+        isImageUrl(obj.media.proxy_url)
+      ) {
+        imageUrls.push(obj.media.proxy_url);
       }
     }
 
-    // Button-Links sammeln
     const label = obj.label || obj?.data?.label;
     const url = obj.url || obj?.data?.url;
 
@@ -253,13 +220,15 @@ function collectFromMessage(message) {
     }
   });
 
+  const uniqueImages = dedupeImageUrls(imageUrls).slice(0, 10);
+
   console.log(
-    `Found ${imageUrls.length} unique image URLs (deduplicated during collection)`
+    `Found ${imageUrls.length} raw image URLs, ${uniqueImages.length} unique image URLs`
   );
 
   return {
     text: [...new Set(textParts.filter(Boolean))].join("\n"),
-    imageUrls: imageUrls.slice(0, 10),
+    imageUrls: uniqueImages,
     buttonLinks,
   };
 }
@@ -267,7 +236,9 @@ function collectFromMessage(message) {
 function extractProductName(text) {
   const input = String(text || "");
 
-  const markdownMatch = input.match(/\[([^\]]{3,200})\]\((https?:\/\/[^)]+)\)/);
+  const markdownMatch = input.match(
+    /\[([^\]]{3,200})\]\((https?:\/\/[^)]+)\)/
+  );
 
   if (markdownMatch) {
     return markdownMatch[1].trim();
@@ -313,24 +284,16 @@ function extractPrice(text) {
 function buildAgentLines(buttonLinks) {
   const lines = [];
 
-  // BEST OPTION: Litbuy
   lines.push(`${EMOJI_STAR} <b>BEST OPTION: Litbuy</b> ${EMOJI_STAR}`);
   lines.push("");
 
-  // Litbuy Coupon
   lines.push(
-    `${EMOJI_GIFT} 500$ Litbuy Coupon verlinke diese Nachricht mit diesem Link  <a href="${safeUrl(LITBUY_COUPON_LINK)}">LINK</a>`
+    `<a href="${safeUrl(LITBUY_COUPON_LINK)}">${EMOJI_GIFT} <b>500$ Litbuy Coupon</b></a>`
   );
   lines.push("");
 
-  // Agent Links - Litbuy zuerst, dann die anderen
-  const litbuyUrl = buttonLinks.get("Litbuy");
-  if (litbuyUrl) {
-    lines.push(`<a href="${safeUrl(litbuyUrl)}">${EMOJI_LINK} Litbuy</a>`);
-  }
-
   for (const agent of WANTED_AGENTS) {
-    if (agent === "Litbuy") continue; // Litbuy wurde bereits hinzugefügt
+    if (agent === "Litbuy") continue;
 
     const url = buttonLinks.get(agent);
 
@@ -347,13 +310,10 @@ function buildAgentLines(buttonLinks) {
 function buildCaption({ productName, price, agentLines }) {
   const lines = [];
 
-  // Produktname auf eine Zeile begrenzen (mit Emojis und Formatting)
-  // Ungefähr: "🧬 [productName hier] 🧬" muss unter 100 Zeichen bleiben
-  let displayName = escapeHtml(productName);
-  const maxLength = 80; // Reserve für Emojis und Tags
-  
-  if (displayName.length > maxLength) {
-    displayName = displayName.slice(0, maxLength - 1) + "…";
+  let displayName = escapeHtml(productName || "Product");
+
+  if (displayName.length > 80) {
+    displayName = displayName.slice(0, 79) + "…";
   }
 
   lines.push(`${EMOJI_DNA} <b>${displayName}</b> ${EMOJI_DNA}`);
@@ -376,25 +336,28 @@ function buildCaption({ productName, price, agentLines }) {
     `<a href="${SPREADSHEET_LINK}">${EMOJI_CHEERS} SWEDY SPREADSHEET ${EMOJI_CHEERS}</a>`
   );
 
-  return lines.join("\n").trim();
-}
+  let caption = lines.join("\n").trim();
 
-function splitTelegramText(text, maxLength = 4096) {
-  const chunks = [];
-  let rest = text;
+  if (caption.length > 1024) {
+    console.log("Caption too long, using shortened one-message caption.");
 
-  while (rest.length > maxLength) {
-    let cut = rest.lastIndexOf("\n", maxLength);
-
-    if (cut < 1000) cut = maxLength;
-
-    chunks.push(rest.slice(0, cut));
-    rest = rest.slice(cut).trimStart();
+    caption = [
+      `${EMOJI_DNA} <b>${displayName}</b> ${EMOJI_DNA}`,
+      price ? `${EMOJI_MONEY} Price: ${escapeHtml(price)}` : "",
+      "",
+      `${EMOJI_STAR} <b>BEST OPTION: Litbuy</b> ${EMOJI_STAR}`,
+      "",
+      `<a href="${safeUrl(LITBUY_COUPON_LINK)}">${EMOJI_GIFT} <b>500$ Litbuy Coupon</b></a>`,
+      "",
+      `<a href="${HELP_LINK}">${EMOJI_HELP} ASK HERE FOR HELP &amp; FINDS</a>`,
+      `<a href="${SPREADSHEET_LINK}">${EMOJI_CHEERS} SWEDY SPREADSHEET ${EMOJI_CHEERS}</a>`,
+    ]
+      .filter((line) => line !== "")
+      .join("\n")
+      .trim();
   }
 
-  if (rest) chunks.push(rest);
-
-  return chunks;
+  return caption;
 }
 
 const telegram = axios.create({
@@ -423,27 +386,8 @@ async function telegramPost(method, payload) {
   }
 }
 
-async function sendText(text) {
-  const chunks = splitTelegramText(text);
-
-  for (const chunk of chunks) {
-    await telegramPost("sendMessage", {
-      chat_id: TELEGRAM_CHAT_ID,
-      text: chunk,
-      parse_mode: "HTML",
-      disable_web_page_preview: false,
-    });
-
-    console.log("Sent Telegram text");
-    await sleep(1000);
-  }
-}
-
 async function sendProduct({ imageUrls, caption }) {
   if (imageUrls.length > 1) {
-    const mediaCaption =
-      caption.length <= 1024 ? caption : caption.slice(0, 950) + "\n\n...";
-
     const media = imageUrls.map((url, index) => {
       const item = {
         type: "photo",
@@ -451,7 +395,7 @@ async function sendProduct({ imageUrls, caption }) {
       };
 
       if (index === 0) {
-        item.caption = mediaCaption;
+        item.caption = caption;
         item.parse_mode = "HTML";
       }
 
@@ -466,42 +410,34 @@ async function sendProduct({ imageUrls, caption }) {
         media,
       });
 
-      console.log("Sent MediaGroup with caption");
-
-      if (caption.length > 1024) {
-        await sleep(1000);
-        await sendText(caption);
-      }
-
+      console.log("Sent one MediaGroup message with caption");
       return;
     } catch (error) {
-      console.error("MediaGroup failed. Falling back to first image.");
+      console.error("MediaGroup failed. Falling back to one photo.");
       console.error("MediaGroup error:", error.response?.data || error.message);
     }
   }
 
   if (imageUrls.length >= 1) {
-    const photoCaption =
-      caption.length <= 1024 ? caption : caption.slice(0, 950) + "\n\n...";
-
     await telegramPost("sendPhoto", {
       chat_id: TELEGRAM_CHAT_ID,
       photo: imageUrls[0],
-      caption: photoCaption,
+      caption,
       parse_mode: "HTML",
     });
 
     console.log("Sent one photo with caption");
-
-    if (caption.length > 1024) {
-      await sleep(1000);
-      await sendText(caption);
-    }
-
     return;
   }
 
-  await sendText(caption);
+  await telegramPost("sendMessage", {
+    chat_id: TELEGRAM_CHAT_ID,
+    text: caption,
+    parse_mode: "HTML",
+    disable_web_page_preview: false,
+  });
+
+  console.log("Sent text-only message");
 }
 
 const queue = [];
