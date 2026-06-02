@@ -100,7 +100,10 @@ function extractImageId(url) {
   if (fileMatch) return `file:${fileMatch[1]}`;
 
   return value
-    .replace(/^https?:\/\/images-ext-\d+\.discordapp\.net\/external\/[^/]+\//, "")
+    .replace(
+      /^https?:\/\/images-ext-\d+\.discordapp\.net\/external\/[^/]+\//,
+      ""
+    )
     .replace(/^https?:\/\/media\.discordapp\.net\//, "")
     .replace(/^https?:\/\/cdn\.discordapp\.com\//, "")
     .replace(/^https?:\/\/cdn\.doppel\.fit\//, "");
@@ -284,12 +287,24 @@ function extractPrice(text) {
 function buildAgentLines(buttonLinks) {
   const lines = [];
 
-  lines.push(`${EMOJI_STAR} <b>BEST OPTION: Litbuy</b> ${EMOJI_STAR}`);
+  const litbuyUrl = buttonLinks.get("Litbuy");
+
+  if (litbuyUrl) {
+    lines.push(
+      `<a href="${safeUrl(litbuyUrl)}">${EMOJI_STAR} <b>BEST OPTION: Litbuy</b> ${EMOJI_STAR}</a>`
+    );
+  } else {
+    lines.push(`${EMOJI_STAR} <b>BEST OPTION: Litbuy</b> ${EMOJI_STAR}`);
+  }
+
   lines.push("");
 
   lines.push(
-    `<a href="${safeUrl(LITBUY_COUPON_LINK)}">${EMOJI_GIFT} <b>500$ Litbuy Coupon</b></a>`
+    `<a href="${safeUrl(
+      LITBUY_COUPON_LINK
+    )}">${EMOJI_GIFT} <b>500$ Litbuy Coupon</b></a>`
   );
+
   lines.push("");
 
   for (const agent of WANTED_AGENTS) {
@@ -345,9 +360,13 @@ function buildCaption({ productName, price, agentLines }) {
       `${EMOJI_DNA} <b>${displayName}</b> ${EMOJI_DNA}`,
       price ? `${EMOJI_MONEY} Price: ${escapeHtml(price)}` : "",
       "",
-      `${EMOJI_STAR} <b>BEST OPTION: Litbuy</b> ${EMOJI_STAR}`,
+      litbuyUrl
+        ? `<a href="${safeUrl(litbuyUrl)}">${EMOJI_STAR} <b>BEST OPTION: Litbuy</b> ${EMOJI_STAR}</a>`
+        : `${EMOJI_STAR} <b>BEST OPTION: Litbuy</b> ${EMOJI_STAR}`,
       "",
-      `<a href="${safeUrl(LITBUY_COUPON_LINK)}">${EMOJI_GIFT} <b>500$ Litbuy Coupon</b></a>`,
+      `<a href="${safeUrl(
+        LITBUY_COUPON_LINK
+      )}">${EMOJI_GIFT} <b>500$ Litbuy Coupon</b></a>`,
       "",
       `<a href="${HELP_LINK}">${EMOJI_HELP} ASK HERE FOR HELP &amp; FINDS</a>`,
       `<a href="${SPREADSHEET_LINK}">${EMOJI_CHEERS} SWEDY SPREADSHEET ${EMOJI_CHEERS}</a>`,
