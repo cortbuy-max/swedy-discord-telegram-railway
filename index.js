@@ -319,7 +319,7 @@ function buildAgentLines(buttonLinks) {
 
   // Litbuy Coupon
   lines.push(
-    `${EMOJI_GIFT} 500$ Litbuy Coupon verlinke diese Nachricht mit diesem Link  <a href="${LITBUY_COUPON_LINK}">${LITBUY_COUPON_LINK}</a>`
+    `${EMOJI_GIFT} 500$ Litbuy Coupon verlinke diese Nachricht mit diesem Link  <a href="${safeUrl(LITBUY_COUPON_LINK)}">LINK</a>`
   );
   lines.push("");
 
