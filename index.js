@@ -10,6 +10,7 @@ const POST_DELAY_SECONDS = Number(process.env.POST_DELAY_SECONDS || 30);
 
 const HELP_LINK = "https://t.me/swedyfinder";
 const SPREADSHEET_LINK = "https://doppel.fit/@swedyfinds";
+const LITBUY_COUPON_LINK = "https://m.litbuy.com/pages/register/index?inviteCode=Z4KS78MR3";
 
 const EMOJI_DNA = "\u{1F9EC}";
 const EMOJI_MONEY = "\u{1F4B6}";
@@ -17,6 +18,7 @@ const EMOJI_LINK = "\u{1F517}";
 const EMOJI_HELP = "\u{2753}";
 const EMOJI_CHEERS = "\u{1F942}";
 const EMOJI_STAR = "\u{2B50}";
+const EMOJI_GIFT = "\u{1F381}";
 
 const WANTED_AGENTS = [
   "Litbuy",
@@ -311,17 +313,24 @@ function extractPrice(text) {
 function buildAgentLines(buttonLinks) {
   const lines = [];
 
-  const cssbuyUrl = buttonLinks.get("CSSBuy");
+  // BEST OPTION: Litbuy
+  lines.push(`${EMOJI_STAR} <b>BEST OPTION: Litbuy</b> ${EMOJI_STAR}`);
+  lines.push("");
 
-  if (cssbuyUrl) {
-    lines.push(
-      `<a href="${safeUrl(cssbuyUrl)}">${EMOJI_STAR} <b>BEST OPTION: CSSBuy</b> ${EMOJI_STAR}</a>`
-    );
-    lines.push("");
+  // Litbuy Coupon
+  lines.push(
+    `${EMOJI_GIFT} 500$ Litbuy Coupon verlinke diese Nachricht mit diesem Link  <a href="${LITBUY_COUPON_LINK}">${LITBUY_COUPON_LINK}</a>`
+  );
+  lines.push("");
+
+  // Agent Links - Litbuy zuerst, dann die anderen
+  const litbuyUrl = buttonLinks.get("Litbuy");
+  if (litbuyUrl) {
+    lines.push(`<a href="${safeUrl(litbuyUrl)}">${EMOJI_LINK} Litbuy</a>`);
   }
 
   for (const agent of WANTED_AGENTS) {
-    if (agent === "CSSBuy") continue;
+    if (agent === "Litbuy") continue; // Litbuy wurde bereits hinzugefügt
 
     const url = buttonLinks.get(agent);
 
@@ -338,7 +347,16 @@ function buildAgentLines(buttonLinks) {
 function buildCaption({ productName, price, agentLines }) {
   const lines = [];
 
-  lines.push(`${EMOJI_DNA} <b>${escapeHtml(productName)}</b> ${EMOJI_DNA}`);
+  // Produktname auf eine Zeile begrenzen (mit Emojis und Formatting)
+  // Ungefähr: "🧬 [productName hier] 🧬" muss unter 100 Zeichen bleiben
+  let displayName = escapeHtml(productName);
+  const maxLength = 80; // Reserve für Emojis und Tags
+  
+  if (displayName.length > maxLength) {
+    displayName = displayName.slice(0, maxLength - 1) + "…";
+  }
+
+  lines.push(`${EMOJI_DNA} <b>${displayName}</b> ${EMOJI_DNA}`);
 
   if (price) {
     lines.push(`${EMOJI_MONEY} Price: ${escapeHtml(price)}`);
