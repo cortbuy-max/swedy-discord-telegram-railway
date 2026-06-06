@@ -322,7 +322,7 @@ function buildAgentLines(buttonLinks) {
   return lines.join("\n");
 }
 
-function buildCaption({ productName, price, agentLines }) {
+function buildCaption({ productName, price, agentLines, buttonLinks }) {
   const lines = [];
 
   let displayName = escapeHtml(productName || "Product");
@@ -355,6 +355,8 @@ function buildCaption({ productName, price, agentLines }) {
 
   if (caption.length > 1024) {
     console.log("Caption too long, using shortened one-message caption.");
+
+    const litbuyUrl = buttonLinks.get("Litbuy");
 
     caption = [
       `${EMOJI_DNA} <b>${displayName}</b> ${EMOJI_DNA}`,
@@ -484,6 +486,7 @@ async function processQueue() {
           productName,
           price,
           agentLines,
+          buttonLinks: collected.buttonLinks,
         });
 
         console.log("Product:", productName);
